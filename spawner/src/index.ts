@@ -43,255 +43,415 @@ async function getDriver() {
 async function startScreenshare(driver: WebDriver) {
   console.log("startScreensharecalled");
   await driver.sleep(2000);
+
   try {
-    const script = `
-    const videoProfile = "profile-level-id=6400";
-const ipAddress = "127.0.0.1";
-const useSingleWebRTCPort = true;
-function setCodec(sdp, type, codec, clockRate) {
-  var sdpLines = sdp.split("\\r\\n");
-
-  for (var i = 0; i < sdpLines.length; i++) {
-    if (sdpLines[i].search("m=" + type) !== -1) {
-      var mLineIndex = i;
-      break;
-    }
+    const MTXLibrary = `(function() {
+  function unquoteCredential(v) {
+    return JSON.parse('"' + v + '"');
   }
 
-  if (mLineIndex === null) return sdp;
+  function linkToIceServers(links) {
+    return (links !== null) ? links.split(', ').map(function(link) {
+      var m = link.match(/^<(.+?)>; rel="ice-server"(; username="(.*?)"; credential="(.*?)"; credential-type="password")?/i);
+      var ret = {
+        urls: [m[1]]
+      };
 
-  var codecPayload = null;
-  var re = new RegExp(":(\\d+) " + codec + "/" + clockRate);
-  function extractPayloadType(sdpLine, pattern) {
-    var result = sdpLine.match(pattern);
-    return result && result.length == 2 ? result[1] : null;
+      if (m[3] !== undefined) {
+        ret.username = unquoteCredential(m[3]);
+        ret.credential = unquoteCredential(m[4]);
+        ret.credentialType = 'password';
+      }
+
+      return ret;
+    }) : [];
   }
-  for (var i = mLineIndex; i < sdpLines.length; i++) {
-    if (sdpLines[i].search(codec + "/" + clockRate) !== -1) {
-      codecPayload = extractPayloadType(sdpLines[i], re);
-      if (
-        codecPayload &&
-        CodecProfileMatches(codec, sdpLines, mLineIndex, codecPayload)
-      ) {
-        sdpLines[mLineIndex] = setDefaultCodec(
-          sdpLines[mLineIndex],
-          codecPayload
-        );
-        break;
+
+  function parseOffer(offer) {
+    var ret = {
+      iceUfrag: '',
+      icePwd: '',
+      medias: []
+    };
+
+    var lines = offer.split('\\r\\n');
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i];
+      if (line.startsWith('m=')) {
+        ret.medias.push(line.slice('m='.length));
+      } else if (ret.iceUfrag === '' && line.startsWith('a=ice-ufrag:')) {
+        ret.iceUfrag = line.slice('a=ice-ufrag:'.length);
+      } else if (ret.icePwd === '' && line.startsWith('a=ice-pwd:')) {
+        ret.icePwd = line.slice('a=ice-pwd:'.length);
       }
     }
+
+    return ret;
   }
 
-  if (codecPayload === null) return sdp;
-
-  var rtmpmap = "a=rtpmap:";
-  var rtcp = "a=rtcp-fb:";
-  var fmptp = "a=fmtp:";
-  var rtmpmapThis = "a=rtpmap:" + codecPayload;
-  var rtcpThis = "a=rtcp-fb:" + codecPayload;
-  var fmptpThis = "a=fmtp:" + codecPayload;
-  var bAddAll = false;
-  var resSDPLines = new Array();
-
-  for (var i = 0; i < sdpLines.length; i++) {
-    if (i <= mLineIndex) {
-      resSDPLines.push(sdpLines[i]);
-    } else {
-      if (sdpLines[i].search("m=") === 0) bAddAll = true;
-
-      var bNotToAdd =
-        (sdpLines[i].search(rtmpmap) === 0 &&
-          sdpLines[i].search(rtmpmapThis) !== 0) ||
-        (sdpLines[i].search(rtcp) === 0 &&
-          sdpLines[i].search(rtcpThis) !== 0) ||
-        (sdpLines[i].search(fmptp) === 0 &&
-          sdpLines[i].search(fmptpThis) !== 0);
-
-      if (bAddAll || !bNotToAdd) resSDPLines.push(sdpLines[i]);
-    }
-  }
-
-  sdp = resSDPLines.join("\\r\\n");
-  return sdp;
-}
-function CodecProfileMatches(codec, sdpLines, mLineIndex, codecPayload) {
-  if (codec != "H264") return true;
-
-  for (var i = mLineIndex; i < sdpLines.length; i++) {
-    if (
-      sdpLines[i].search("a=fmtp:" + codecPayload) === 0 &&
-      sdpLines[i].search(videoProfile) !== -1
-    )
-      return true;
-  }
-
-  return false;
-}
-function setDefaultCodec(mLine, payload) {
-  var elements = mLine.split(" ");
-  var newLine = new Array();
-  var index = 0;
-  for (var i = 0; i < elements.length; i++) {
-    if (index === 3) {
-      newLine[index++] = payload;
-      break;
-    }
-    if (elements[i] !== payload) newLine[index++] = elements[i];
-  }
-  return newLine.join(" ");
-}
-function setMediaBitrates(sdp) {
-  sdp = setMediaBitrate(sdp, "video", 1000);
-
-  sdp = setMediaBitrate(sdp, "audio", 50);
-
-  return sdp;
-}
-function setMediaBitrate(sdp, media, bitrate) {
-  var modifier = "b=AS:";
-
-  var lines = sdp.split("\\r\\n");
-  var line = -1;
-  for (var i = 0; i < lines.length; i++) {
-    if (lines[i].indexOf("m=" + media) === 0) {
-      line = i;
-      break;
-    }
-  }
-
-  if (line === -1) return sdp;
-
-  // Pass the m line
-  line++;
-
-  // Skip i and c lines
-  while (lines[line].indexOf("i=") === 0 || lines[line].indexOf("c=") === 0)
-    line++;
-
-  // If we are on a b line, replace it
-  if (lines[line].indexOf("b") === 0) {
-    lines[line] = modifier + bitrate;
-    return lines.join("\\r\\n");
-  }
-
-  // Add a new b line
-  var newLines = lines.slice(0, line);
-  newLines.push(modifier + bitrate);
-  newLines = newLines.concat(lines.slice(line, lines.length));
-  return newLines.join("\\r\\n");
-}
-const modifyOffer = (offer) => {
-  offer.sdp = setMediaBitrates(offer.sdp);
-  offer.sdp = setCodec(offer.sdp, "audio", "opus", 48000);
-  offer.sdp = setCodec(offer.sdp, "video", "H264", 90000);
-
-  offer.sdp = offer.sdp.replace("a=sendrecv", "a=sendonly");
-  offer.sdp = offer.sdp.replace("a=sendrecv", "a=sendonly");
-
-  //Fix for a=extmap-allow-mixed - Unreal Media Server doesn't support it in SDP
-  offer.sdp = offer.sdp.replace("a=extmap-allow-mixed\\r\\n", "");
-  offer.sdp = offer.sdp.replace("a=extmap-allow-mixed", "");
-  return offer;
-};
-
-// Helper function for delays
-function wait(delayInMS) {
-  return new Promise((resolve) => setTimeout(resolve, delayInMS));
-}
-
-// Set up WebSocket signaling
-const socket = new WebSocket(
-  "ws://127.0.0.1:5119/webrtc_publish/singleport/tcp/webrtctest"
-);
-console.log(socket);
-const peerConnection = new RTCPeerConnection({
-  iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-});
-
-// Add event listener for ICE candidates
-peerConnection.onicecandidate = (event) => {
-  // if (event.candidate) {
-  //   socket.send(JSON.stringify(event));
-  // }
-};
-
-// Handle incoming WebSocket messages
-socket.onmessage = async (event) => {
-  var response = event.data;
-  var strArr = response.split("|-|-|");
-  if (strArr.length == 1) {
-    stop();
-    alert(response);
-  } else {
-    var serverSDP = JSON.parse(strArr[0]);
-    var serverEndpoint = JSON.parse(strArr[1]);
-
-    serverEndpoint.candidate = EnsureValidCandidate(serverEndpoint.candidate);
-
-    serverSDP.sdp = setMediaBitrates(serverSDP.sdp);
-
-    peerConnection.setRemoteDescription(new RTCSessionDescription(serverSDP));
-    var candidate = new RTCIceCandidate({
-      sdpMLineIndex: serverEndpoint.sdpMLineIndex,
-      candidate: serverEndpoint.candidate,
-    });
-    peerConnection.addIceCandidate(candidate);
-  }
-
-  if (socket != null) {
-    socket.close();
-  }
-  function EnsureValidCandidate(candidate) {
-    if (
-      candidate.search(ipAddress) !== -1 ||
-      !useSingleWebRTCPort ||
-      ipAddress == "127.0.0.1" ||
-      !ValidateIPaddress(ipAddress)
-    ) {
-      return candidate;
+  function generateSdpFragment(od, candidates) {
+    var candidatesByMedia = {};
+    for (var i = 0; i < candidates.length; i++) {
+      var candidate = candidates[i];
+      var mid = candidate.sdpMLineIndex;
+      if (candidatesByMedia[mid] === undefined) {
+        candidatesByMedia[mid] = [];
+      }
+      candidatesByMedia[mid].push(candidate);
     }
 
-    //In case the server is behind the NAT router, replace private IP with public IP in the candidate
-    var candLines = candidate.split(" ");
-    var ipIndex = 4;
-    for (var i = 0; i < candLines.length; i++) {
-      if (candLines[i] === "typ") {
-        ipIndex = i - 2;
+    var frag = 'a=ice-ufrag:' + od.iceUfrag + '\\r\\n' + 
+               'a=ice-pwd:' + od.icePwd + '\\r\\n';
+
+    var mid = 0;
+    for (var j = 0; j < od.medias.length; j++) {
+      var media = od.medias[j];
+      if (candidatesByMedia[mid] !== undefined) {
+        frag += 'm=' + media + '\\r\\n' + 
+                'a=mid:' + mid + '\\r\\n';
+
+        for (var k = 0; k < candidatesByMedia[mid].length; k++) {
+          frag += 'a=' + candidatesByMedia[mid][k].candidate + '\\r\\n';
+        }
+      }
+      mid++;
+    }
+
+    return frag;
+  }
+
+  function setCodec(section, codec) {
+    var lines = section.split('\\r\\n');
+    var lines2 = [];
+    var payloadFormats = [];
+
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i];
+      if (!line.startsWith('a=rtpmap:')) {
+        lines2.push(line);
+      } else {
+        if (line.toLowerCase().includes(codec)) {
+          payloadFormats.push(line.slice('a=rtpmap:'.length).split(' ')[0]);
+          lines2.push(line);
+        }
+      }
+    }
+
+    var lines3 = [];
+    var firstLine = true;
+
+    for (var j = 0; j < lines2.length; j++) {
+      var line = lines2[j];
+      if (firstLine) {
+        firstLine = false;
+        lines3.push(line.split(' ').slice(0, 3).concat(payloadFormats).join(' '));
+      } else if (line.startsWith('a=fmtp:')) {
+        if (payloadFormats.includes(line.slice('a=fmtp:'.length).split(' ')[0])) {
+          lines3.push(line);
+        }
+      } else if (line.startsWith('a=rtcp-fb:')) {
+        if (payloadFormats.includes(line.slice('a=rtcp-fb:'.length).split(' ')[0])) {
+          lines3.push(line);
+        }
+      } else {
+        lines3.push(line);
+      }
+    }
+
+    return lines3.join('\\r\\n');
+  }
+
+  function setVideoBitrate(section, bitrate) {
+    var lines = section.split('\\r\\n');
+    var newLines = [];
+
+    for (var i = 0; i < lines.length; i++) {
+      newLines.push(lines[i]);
+      if (lines[i].startsWith('c=')) {
+        newLines.push('b=TIAS:' + (parseInt(bitrate) * 1024).toString());
+      }
+    }
+
+    return newLines.join('\\r\\n');
+  }
+
+  function setAudioBitrate(section, bitrate, voice) {
+    var opusPayloadFormat = '';
+    var lines = section.split('\\r\\n');
+
+    for (var i = 0; i < lines.length; i++) {
+      if (lines[i].startsWith('a=rtpmap:') && lines[i].toLowerCase().includes('opus/')) {
+        opusPayloadFormat = lines[i].slice('a=rtpmap:'.length).split(' ')[0];
         break;
       }
     }
 
-    candLines[ipIndex] = ipAddress;
-    candidate = candLines.join(" ");
-    return candidate;
-  }
-
-  function ValidateIPaddress(ipaddr) {
-    if (
-      /^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/.test(
-        ipaddr
-      )
-    ) {
-      return true;
+    if (opusPayloadFormat === '') {
+      return section;
     }
 
-    return false;
-  }
-  // const message = JSON.parse(event.data);
-  // if (message.type === "answer") {
-  //   const remoteDesc = new RTCSessionDescription(message);
-  //   await peerConnection.setRemoteDescription(remoteDesc);
-  // } else if (message.type === "ice-candidate") {
-  //   try {
-  //     await peerConnection.addIceCandidate(message.candidate);
-  //   } catch (e) {
-  //     console.error("Error adding received ICE candidate", e);
-  //   }
-  // }
-};
+    for (var i = 0; i < lines.length; i++) {
+      if (lines[i].startsWith('a=fmtp:' + opusPayloadFormat + ' ')) {
+        if (voice) {
+          lines[i] = 'a=fmtp:' + opusPayloadFormat + ' minptime=10;useinbandfec=1;maxaveragebitrate=' + 
+                     (parseInt(bitrate) * 1024).toString();
+        } else {
+          lines[i] = 'a=fmtp:' + opusPayloadFormat + ' maxplaybackrate=48000;stereo=1;sprop-stereo=1;maxaveragebitrate=' + 
+                     (parseInt(bitrate) * 1024).toString();
+        }
+      }
+    }
 
-console.log("before mediadevices");
-window.navigator.mediaDevices
+    return lines.join('\\r\\n');
+  }
+
+  function editOffer(sdp, videoCodec, audioCodec, audioBitrate, audioVoice) {
+    var sections = sdp.split('m=');
+
+    for (var i = 0; i < sections.length; i++) {
+      if (sections[i].startsWith('video')) {
+        sections[i] = setCodec(sections[i], videoCodec);
+      } else if (sections[i].startsWith('audio')) {
+        sections[i] = setAudioBitrate(setCodec(sections[i], audioCodec), audioBitrate, audioVoice);
+      }
+    }
+
+    return sections.join('m=');
+  }
+
+  function editAnswer(sdp, videoBitrate) {
+    var sections = sdp.split('m=');
+
+    for (var i = 0; i < sections.length; i++) {
+      if (sections[i].startsWith('video')) {
+        sections[i] = setVideoBitrate(sections[i], videoBitrate);
+      }
+    }
+
+    return sections.join('m=');
+  }
+
+  var retryPause = 2000;
+
+    class MediaMTXWebRTCPublisher {
+    constructor(conf) {
+      this.conf = conf;
+      this.state = 'initializing';
+      this.restartTimeout = null;
+      this.pc = null;
+      this.offerData = null;
+      this.sessionUrl = null;
+      this.queuedCandidates = [];
+
+      this.start();
+    }
+
+    start = () => {
+      this.state = 'running';
+
+      this.requestICEServers()
+        .then((iceServers) => this.setupPeerConnection(iceServers))
+        .then((offer) => this.sendOffer(offer))
+        .then((answer) => this.setAnswer(answer))
+        .catch((err) => {
+          this.handleError(err.toString());
+        });
+    };
+
+    handleError = (err) => {
+      if (this.state === 'restarting' || this.state === 'error') {
+        return;
+      }
+
+      if (this.pc !== null) {
+        this.pc.close();
+        this.pc = null;
+      }
+
+      this.offerData = null;
+
+      if (this.sessionUrl !== null) {
+        fetch(this.sessionUrl, {
+          method: 'DELETE',
+        });
+        this.sessionUrl = null;
+      }
+
+      this.queuedCandidates = [];
+
+      if (this.state === 'running') {
+        this.state = 'restarting';
+
+        this.restartTimeout = window.setTimeout(() => {
+          this.restartTimeout = null;
+          this.start();
+        }, retryPause);
+
+        if (this.conf.onError !== undefined) {
+          this.conf.onError(err + ', retrying in some seconds');
+        }
+      } else {
+        this.state = 'error';
+
+        if (this.conf.onError !== undefined) {
+          this.conf.onError(err);
+        }
+      }
+    };
+
+    requestICEServers = () => {
+      return fetch(this.conf.url, {
+        method: 'OPTIONS',
+      })
+        .then((res) => linkToIceServers(res.headers.get('Link')));
+    };
+
+    setupPeerConnection = (iceServers) => {
+      this.pc = new RTCPeerConnection({
+        iceServers,
+        // https://webrtc.org/getting-started/unified-plan-transition-guide
+        sdpSemantics: 'unified-plan',
+      });
+
+      this.pc.onicecandidate = (evt) => this.onLocalCandidate(evt);
+      this.pc.oniceconnectionstatechange = () => this.onConnectionState();
+
+      this.conf.stream.getTracks().forEach((track) => {
+        this.pc.addTrack(track, this.conf.stream);
+      });
+
+      return this.pc.createOffer()
+        .then((offer) => {
+          this.offerData = parseOffer(offer.sdp);
+
+          return this.pc.setLocalDescription(offer)
+            .then(() => offer.sdp);
+        });
+    };
+
+    sendOffer = (offer) => {
+      offer = editOffer(
+        offer,
+        this.conf.videoCodec,
+        this.conf.audioCodec,
+        this.conf.audioBitrate,
+        this.conf.audioVoice);
+
+      return fetch(this.conf.url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/sdp',
+        },
+        body: offer,
+      })
+        .then((res) => {
+          switch (res.status) {
+          case 201:
+            break;
+          case 400:
+            return res.json().then((e) => { throw new Error(e.error); });
+          default:
+            throw new Error("bad status code" +res.status);
+          }
+
+          this.sessionUrl = new URL(res.headers.get('location'), this.conf.url).toString();
+
+          return res.text();
+        });
+    };
+
+    setAnswer = (answer) => {
+      if (this.state !== 'running') {
+        return;
+      }
+
+      answer = editAnswer(answer, this.conf.videoBitrate);
+
+      return this.pc.setRemoteDescription(new RTCSessionDescription({
+        type: 'answer',
+        sdp: answer,
+      }))
+        .then(() => {
+          if (this.queuedCandidates.length !== 0) {
+            this.sendLocalCandidates(this.queuedCandidates);
+            this.queuedCandidates = [];
+          }
+        });
+    };
+
+    onLocalCandidate = (evt) => {
+      if (this.state !== 'running') {
+        return;
+      }
+
+      if (evt.candidate !== null) {
+        if (this.sessionUrl === null) {
+          this.queuedCandidates.push(evt.candidate);
+        } else {
+          this.sendLocalCandidates([evt.candidate]);
+        }
+      }
+    };
+
+    sendLocalCandidates = (candidates) => {
+      fetch(this.sessionUrl, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/trickle-ice-sdpfrag',
+          'If-Match': '*',
+        },
+        body: generateSdpFragment(this.offerData, candidates),
+      })
+        .then((res) => {
+          switch (res.status) {
+          case 204:
+            break;
+          case 404:
+            throw new Error('stream not found');
+          default:
+            throw new Error("bad status code" +res.status);
+          }
+        })
+        .catch((err) => {
+          this.handleError(err.toString());
+        });
+    };
+
+    onConnectionState = () => {
+      if (this.state !== 'running') {
+        return;
+      }
+
+      if (this.pc.iceConnectionState === 'failed') {
+        this.handleError('peer connection closed');
+      } else if (this.pc.iceConnectionState === 'connected') {
+        if (this.conf.onConnected !== undefined) {
+          this.conf.onConnected();
+        }
+      }
+    };
+
+  }
+  window.MediaMTXWebRTCPublisher = MediaMTXWebRTCPublisher;
+})();`;
+    const streamSscript = `
+    const onStream = (stream) => {
+        new MediaMTXWebRTCPublisher({
+          url: "http://localhost:8889/mystream/whip",
+          stream,
+          videoCodec: "h264/90000",
+          videoBitrate: "2000",
+          audioCodec: "opus/48000",
+          audioBitrate: "32",
+          onError: (err) => {
+            console.log(err);
+          },
+          onConnected: () => {
+            console.log("Connected successfully");
+          },
+        });
+      };
+    window.navigator.mediaDevices
   .getDisplayMedia({
     video: {
       displaySurface: "browser", // Capture browser window
@@ -327,25 +487,16 @@ window.navigator.mediaDevices
       ...screenStream.getVideoTracks(),
       ...dest.stream.getAudioTracks(),
     ]);
-    // peerConnection.addStream(screenStream);
-    combinedStream.getTracks().forEach((track) => {
-      peerConnection.addTrack(track, combinedStream);
-    });
-    // Create and send an SDP offer
-    let offer = await peerConnection.createOffer();
-    offer =await modifyOffer(offer);
-    await peerConnection.setLocalDescription(offer);
-    socket.send("12345|-|-|" + JSON.stringify(peerConnection.localDescription));
+    onStream(combinedStream);
+    console.log("Stream Started")
   });
-console.log("Screen sharing setup complete.");
-await wait(10000);
 `;
-
-    await driver.executeScript(script);
+    await driver.executeScript(MTXLibrary);
+    await driver.executeScript(streamSscript);
+    console.log("Script executed");
   } catch (error) {
     console.log(error);
   }
-
   driver.sleep(1000000);
 }
 
