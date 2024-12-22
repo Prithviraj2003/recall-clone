@@ -1,13 +1,16 @@
 import { Builder, Browser, By, until, WebDriver } from "selenium-webdriver";
 import { Options } from "selenium-webdriver/chrome";
-
+import * as fs from "fs";
 async function openMeet(driver: WebDriver) {
   try {
-    await driver.get("https://meet.google.com/ybi-eurv-efr");
-
+    await driver.get("https://meet.google.com/ttp-axbj-msz");
+    console.log("Title of the website : " + (await driver.getTitle()));
+    const image = await driver.takeScreenshot();
+    fs.writeFileSync("screenshot.png", image, "base64");
+    console.log("Screenshot saved");
     const nameInput = await driver.wait(
       until.elementLocated(By.xpath('//input[@placeholder="Your name"]')),
-      15000
+      25000
     );
     await driver.sleep(2000);
     await nameInput.sendKeys("Meeting bot");
@@ -24,12 +27,19 @@ async function openMeet(driver: WebDriver) {
 async function getDriver() {
   const options = new Options({});
   options.addArguments("--disable-blink-features=AutomationControlled");
-  options.addArguments("--use-fake-ui-for-media-stream");
+  options.addArguments("--headless=new");
   options.addArguments("--window-size=1920,1200");
+  options.addArguments("--use-fake-ui-for-media-stream");
   options.addArguments("--auto-select-desktop-capture-source=[RECORD]");
   options.addArguments("--enable-usermedia-screen-capturing");
   options.addArguments('--auto-select-tab-capture-source-by-title="Meet"');
   options.addArguments("--allow-running-insecure-content");
+  // options.setExperimentalOption("excludeSwitches", ["enable-automation"]);
+  // options.setExperimentalOption("useAutomationExtension", false);
+  options.addArguments(
+    "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.6778.205 Safari/537.36"
+  );
+  options.addArguments("--no-sandbox");
 
   // ​​--allow-file-access-from-files--use-fake-device-for-media-stream--allow-running-insecure-content--allow-file-access-from-files--use-fake-device-for-media-stream--allow-running-insecure-content
 
@@ -43,7 +53,6 @@ async function getDriver() {
 async function startScreenshare(driver: WebDriver) {
   console.log("startScreensharecalled");
   await driver.sleep(2000);
-
   try {
     const MTXLibrary = `(function() {
   function unquoteCredential(v) {
@@ -437,7 +446,7 @@ async function startScreenshare(driver: WebDriver) {
     const streamSscript = `
     const onStream = (stream) => {
         new MediaMTXWebRTCPublisher({
-          url: "http://localhost:8889/mystream/whip",
+          url: "http://localhost:9889/mystream/whip",
           stream,
           videoCodec: "h264/90000",
           videoBitrate: "2000",
