@@ -12,6 +12,7 @@
   "description": "",
   "dependencies": {
     "@types/selenium-webdriver": "^4.1.27",
+    "dotenv": "^16.4.7",
     "selenium-webdriver": "^4.27.0",
     "typescript": "^5.7.2"
   }

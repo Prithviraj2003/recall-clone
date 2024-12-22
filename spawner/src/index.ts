@@ -1,19 +1,19 @@
 import { Builder, Browser, By, until, WebDriver } from "selenium-webdriver";
 import { Options } from "selenium-webdriver/chrome";
-import * as fs from "fs";
+import os from "os";
+import { exec } from "child_process";
+import dotenv from "dotenv";
+dotenv.config()
 async function openMeet(driver: WebDriver) {
   try {
-    await driver.get("https://meet.google.com/ttp-axbj-msz");
+    await driver.get(process.env.MEETING_LINK??"https://meet.google.com/");
     console.log("Title of the website : " + (await driver.getTitle()));
-    const image = await driver.takeScreenshot();
-    fs.writeFileSync("screenshot.png", image, "base64");
-    console.log("Screenshot saved");
     const nameInput = await driver.wait(
       until.elementLocated(By.xpath('//input[@placeholder="Your name"]')),
       25000
     );
     await driver.sleep(2000);
-    await nameInput.sendKeys("Meeting bot");
+    await nameInput.sendKeys(process.env.BOT_NAME??"Meeting bot");
     const buttonInput = await driver.wait(
       until.elementLocated(By.xpath('//span[contains(text(), "Ask to join")]')),
       15000
@@ -52,6 +52,39 @@ async function getDriver() {
 
 async function startScreenshare(driver: WebDriver) {
   console.log("startScreensharecalled");
+  try {
+    if (os.platform() === "win32") {
+      const batFilePath = "start_MTX_docker.bat";
+      // Run the .bat file
+      exec(batFilePath, (error, stdout, stderr) => {
+        if (error) {
+          console.error(`exec error: ${error}`);
+          return;
+        }
+        if (stderr) {
+          console.error(`stderr: ${stderr}`);
+          return;
+        }
+        console.log(`stdout: ${stdout}`);
+      });
+    }else{
+      const shFilePath = "start_MTX_docker.sh";
+      // Run the .sh file
+      exec(shFilePath, (error, stdout, stderr) => {
+        if (error) {
+          console.error(`exec error: ${error}`);
+          return;
+        }
+        if (stderr) {
+          console.error(`stderr: ${stderr}`);
+          return;
+        }
+        console.log(`stdout: ${stdout}`);
+      });
+    }
+  } catch (e) {
+    console.log(e);
+  }
   await driver.sleep(2000);
   try {
     const MTXLibrary = `(function() {
@@ -503,6 +536,36 @@ async function startScreenshare(driver: WebDriver) {
     await driver.executeScript(MTXLibrary);
     await driver.executeScript(streamSscript);
     console.log("Script executed");
+    await driver.sleep(2000);
+    if (os.platform() === "win32") {
+      const batFilePath = "start_ffmpeg.bat";
+      // Run the .bat file
+      exec(batFilePath, (error, stdout, stderr) => {
+        if (error) { 
+          console.error(`exec error: ${error}`);
+          return;
+        }
+        if (stderr) {
+          console.error(`stderr: ${stderr}`);
+          return;
+        }
+        console.log(`stdout: ${stdout}`);
+      });
+    }else{
+      const shFilePath = "start_ffmpeg.sh";
+      // Run the .sh file
+      exec('DURATION=20 bash '+shFilePath, (error, stdout, stderr) => {
+        if (error) {
+          console.error(`exec error: ${error}`);
+          return;
+        }
+        if (stderr) {
+          console.error(`stderr: ${stderr}`);
+          return;
+        }
+        console.log(`stdout: ${stdout}`);
+      });
+    }
   } catch (error) {
     console.log(error);
   }
@@ -511,6 +574,10 @@ async function startScreenshare(driver: WebDriver) {
 }
 
 async function main() {
+  if(process.env.MEETING_LINK === undefined){
+    console.log("Please provide the meeting url in the .env file");
+    return;
+  }
   const driver = await getDriver();
   await openMeet(driver);
   await startScreenshare(driver);
