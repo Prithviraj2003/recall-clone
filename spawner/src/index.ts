@@ -470,8 +470,8 @@ async function startScreenshare(driver: WebDriver) {
   })
   .then(async (screenStream) => {
     const audioContext = new AudioContext();
-    const screenAudioStream =
-      audioContext.createMediaStreamSource(screenStream);
+    // const screenAudioStream =
+    //   audioContext.createMediaStreamSource(screenStream);
     const audioEl1 = document.querySelectorAll("audio")[0];
     const audioEl2 = document.querySelectorAll("audio")[1];
     const audioEl3 = document.querySelectorAll("audio")[2];
@@ -487,7 +487,7 @@ async function startScreenshare(driver: WebDriver) {
 
     const dest = audioContext.createMediaStreamDestination();
 
-    screenAudioStream.connect(dest);
+    // screenAudioStream.connect(dest);
     audioElStream1.connect(dest);
     audioElStream2.connect(dest);
     audioElStream3.connect(dest);
@@ -506,7 +506,8 @@ async function startScreenshare(driver: WebDriver) {
   } catch (error) {
     console.log(error);
   }
-  driver.sleep(1000000);
+  await driver.sleep(1000000);
+  driver.quit();
 }
 
 async function main() {
