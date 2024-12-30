@@ -6,23 +6,22 @@ INPUT="rtsp://localhost:8554/mystream"
 # Checking if OUTPUT_DIR is provided as an environment variable
 if [ -z "$OUTPUT_DIR" ]; then
     # If not provided, use the default directory
-    OUTPUT_DIR="/Recordings"
-fi
-if [ -z "$DURATION" ]; then
-    # If not provided, use the default directory
-    DURATION=60
+    OUTPUT_DIR="/Recordings/output.mp4"
 fi
 
-# Setting the output file path
-OUTPUT="$OUTPUT_DIR/output.mp4"
+# Checking if DURATION is provided as an environment variable
+if [ -z "$DURATION" ]; then
+    # If not provided, set a default duration
+    DURATION=40
+fi
 
 # Displaying the input and output paths
 echo "Input: $INPUT"
 echo "Output Directory: $OUTPUT_DIR"
-echo "Output File: $OUTPUT"
+echo "Duration: $DURATION"
 
-# Running the ffmpeg command with a 20-second duration
-ffmpeg -rtsp_transport tcp -i "$INPUT" -c copy -t $DURATION "$OUTPUT"
+# Running the ffmpeg command
+ffmpeg -rtsp_transport tcp -i "$INPUT" -c copy -t "$DURATION" "$OUTPUT_DIR"
 
 # Inform the user the process is complete
-echo "Conversion complete. Output saved to $OUTPUT."
+echo "Conversion complete. Output saved to $OUTPUT_DIR."

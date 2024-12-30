@@ -4,7 +4,8 @@
   "main": "index.js",
   "scripts": {
     "start": "tsc -b && node dist/index.js",
-    "dev": "tsc -b && node dist/index.js"
+    "dev": "tsc -b && node dist/index.js",
+    "server": "tsc -b && node dist/server.js"
   },
   "keywords": [],
   "author": "",
@@ -12,8 +13,15 @@
   "description": "",
   "dependencies": {
     "@types/selenium-webdriver": "^4.1.27",
+    "aws-sdk": "^2.1692.0",
+    "cors": "^2.8.5",
     "dotenv": "^16.4.7",
+    "express": "^4.21.2",
     "selenium-webdriver": "^4.27.0",
     "typescript": "^5.7.2"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0"
   }
 }

@@ -3,17 +3,18 @@ import { Options } from "selenium-webdriver/chrome";
 import os from "os";
 import { exec } from "child_process";
 import dotenv from "dotenv";
-dotenv.config()
-async function openMeet(driver: WebDriver) {
+import { UpdateStatus, UpdateStatusWithOutputDIR } from "./server";
+dotenv.config();
+async function openMeet(driver: WebDriver, link: string, botName: string) {
   try {
-    await driver.get(process.env.MEETING_LINK??"https://meet.google.com/");
+    await driver.get(link);
     console.log("Title of the website : " + (await driver.getTitle()));
     const nameInput = await driver.wait(
       until.elementLocated(By.xpath('//input[@placeholder="Your name"]')),
       25000
     );
     await driver.sleep(2000);
-    await nameInput.sendKeys(process.env.BOT_NAME??"Meeting bot");
+    await nameInput.sendKeys(botName ?? "Meeting bot");
     const buttonInput = await driver.wait(
       until.elementLocated(By.xpath('//span[contains(text(), "Ask to join")]')),
       15000
@@ -41,8 +42,6 @@ async function getDriver() {
   );
   options.addArguments("--no-sandbox");
 
-  // ​​--allow-file-access-from-files--use-fake-device-for-media-stream--allow-running-insecure-content--allow-file-access-from-files--use-fake-device-for-media-stream--allow-running-insecure-content
-
   let driver = await new Builder()
     .forBrowser(Browser.CHROME)
     .setChromeOptions(options)
@@ -50,7 +49,12 @@ async function getDriver() {
   return driver;
 }
 
-async function startScreenshare(driver: WebDriver) {
+async function startScreenshare(
+  driver: WebDriver,
+  duration: number,
+  meetId: string,
+  caption: boolean
+) {
   console.log("startScreensharecalled");
   try {
     if (os.platform() === "win32") {
@@ -67,7 +71,7 @@ async function startScreenshare(driver: WebDriver) {
         }
         console.log(`stdout: ${stdout}`);
       });
-    }else{
+    } else {
       const shFilePath = "start_MTX_docker.sh";
       // Run the .sh file
       exec(shFilePath, (error, stdout, stderr) => {
@@ -87,6 +91,10 @@ async function startScreenshare(driver: WebDriver) {
   }
   await driver.sleep(2000);
   try {
+    const cdnUrl =
+      "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
+    const CDNScript = await fetch(cdnUrl).then((res) => res.text());
+    await driver.executeScript(CDNScript);
     const MTXLibrary = `(function() {
   function unquoteCredential(v) {
     return JSON.parse('"' + v + '"');
@@ -476,7 +484,8 @@ async function startScreenshare(driver: WebDriver) {
   }
   window.MediaMTXWebRTCPublisher = MediaMTXWebRTCPublisher;
 })();`;
-    const streamSscript = `
+
+    const streamScript = `
     const onStream = (stream) => {
         new MediaMTXWebRTCPublisher({
           url: "http://localhost:9889/mystream/whip",
@@ -534,27 +543,194 @@ async function startScreenshare(driver: WebDriver) {
   });
 `;
     await driver.executeScript(MTXLibrary);
-    await driver.executeScript(streamSscript);
+    await driver.wait(until.elementLocated(By.className("axUSnc")), 50000);
+    if (caption) {
+      const button = await driver.wait(
+        until.elementLocated(By.css('button[aria-label="Turn on captions"]')),
+        10000 // Wait for up to 10 seconds
+      );
+      // Click the button
+      await button.click();
+      const captionScript = `
+    window.captionObserver = {
+      observer: null,
+      captionData: [],
+      lastCaption: null,
+      debounceTimeout: null,
+      
+      init: function() {
+        const mainContainer = document.querySelector('div[jsname="dsyhDe"]');
+        if (!mainContainer) {
+          console.error('Main caption container not found');
+          return false;
+        }
+        
+        this.observer = new MutationObserver((mutations) => {
+          // Process each mutation
+          for (const mutation of mutations) {
+            // If nodes were added/removed or text changed
+            if (mutation.type === 'childList' || mutation.type === 'characterData') {
+              // Clear existing debounce timeout
+              if (this.debounceTimeout) {
+                clearTimeout(this.debounceTimeout);
+              }
+              
+              // Set new debounce timeout
+              this.debounceTimeout = setTimeout(() => {
+                // Get current state of caption
+                const caption = this.getCurrentCaptionState(mainContainer);
+                if (caption && this.shouldRecordCaption(caption)) {
+                  this.captionData.push({
+                    timestamp: new Date().toISOString(),
+                    speaker: caption.speaker,
+                    text: caption.text
+                  });
+                  
+                  // Update last caption
+                  this.lastCaption = {
+                    ...caption,
+                    timestamp: Date.now()
+                  };
+                  
+                  console.log('New caption recorded:', caption);
+                }
+              }, 300); // Reduced debounce time to catch updates faster
+            }
+          }
+        });
+        
+        // Observe with more specific config
+        this.observer.observe(mainContainer, {
+          childList: true,        // Watch for added/removed nodes
+          subtree: true,          // Watch all descendants
+          characterData: true,    // Watch for text changes
+          attributes: false,      // Don't need attribute changes
+        });
+        
+        console.log('Caption observer initialized');
+        this.startPeriodicSaving();
+        return true;
+      },
+      
+      getCurrentCaptionState: function(container) {
+        try {
+          // More specific selector for the latest span
+          const captionElement = container.querySelector('div[jsname="tgaKEf"] span:last-child');
+          const speakerElement = container.querySelector('.KcIKyf');
+          
+          if (captionElement && speakerElement) {
+            return {
+              text: captionElement.textContent.trim(),
+              speaker: speakerElement.textContent.trim()
+            };
+          }
+          return null;
+        } catch (error) {
+          console.error('Error getting caption state:', error);
+          return null;
+        }
+      },
+      
+      shouldRecordCaption: function(caption) {
+        if (!this.lastCaption) return true;
+        if (!caption.text) return false;
+        
+        // Don't record if it's exactly the same text within 1 second
+        const isSameContent = 
+          this.lastCaption.speaker === caption.speaker && 
+          this.lastCaption.text === caption.text;
+          
+        const timeSinceLastCaption = Date.now() - this.lastCaption.timestamp;
+        
+        // Allow new caption if:
+        // 1. Content is different, or
+        // 2. Same content but more than 1 second has passed
+        return !isSameContent || timeSinceLastCaption > 1000;
+      },
+      
+      startPeriodicSaving: async function() {
+        setInterval(() => {
+          if (this.captionData.length > 0) {
+            const transcript = {
+              recordingDate: new Date().toISOString(),
+              captions: this.captionData.slice()
+            };
+            
+            // Debug log
+            console.log('Saving captions batch:', this.captionData.length);
+            
+            fetch('http://localhost:9999/save-captions', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify(transcript)
+            })
+            .then(() => {
+              this.captionData = [];
+              console.log('Captions saved successfully');
+            })
+            .catch(err => {
+              console.error('Error saving captions:', err);
+            });
+          }
+        }, 5000);
+      },
+      
+      stop: function() {
+        if (this.observer) {
+          this.observer.disconnect();
+          this.observer = null;
+          if (this.debounceTimeout) {
+            clearTimeout(this.debounceTimeout);
+          }
+          console.log('Caption observer stopped');
+        }
+      }
+    };
+
+    // Initialize and store observer reference globally
+    window.captionRecorder = window.captionObserver.init();
+    
+    // Debug helper functions
+    window.debugCaptions = {
+      getLastCaption: () => window.captionObserver.lastCaption,
+      getCurrentCaptions: () => window.captionObserver.captionData,
+      forceUpdate: () => {
+        const container = document.querySelector('div[jsname="dsyhDe"]');
+        const state = window.captionObserver.getCurrentCaptionState(container);
+        console.log('Current caption state:', state);
+        return state;
+      }
+    };
+`;
+      await driver.executeScript(captionScript);
+    }
+    await driver.executeScript(streamScript);
     console.log("Script executed");
     await driver.sleep(2000);
+    try {
+      const buttonGotIt = await driver.wait(
+        until.elementLocated(By.xpath('//span[contains(text(), "Got it")]')),
+        15000
+      );
+      await buttonGotIt.click();
+    } catch (error) {
+      console.log(error);
+    }
+    const recordingName=`recording_${new Date()
+        .toISOString()
+        .replace(/:/g, "-")}.mp4`
+        let output="" ;
     if (os.platform() === "win32") {
       const batFilePath = "start_ffmpeg.bat";
       // Run the .bat file
-      exec(batFilePath, (error, stdout, stderr) => {
-        if (error) { 
-          console.error(`exec error: ${error}`);
-          return;
-        }
-        if (stderr) {
-          console.error(`stderr: ${stderr}`);
-          return;
-        }
-        console.log(`stdout: ${stdout}`);
-      });
-    }else{
-      const shFilePath = "start_ffmpeg.sh";
-      // Run the .sh file
-      exec('DURATION=20 bash '+shFilePath, (error, stdout, stderr) => {
+      const env = {
+        DURATION: duration.toString(),
+        OUTPUT_DIR: `C:\\Users\\rindu\\Desktop\\ffmpeg\\temp\\${recordingName}`,
+      };
+      output = env.OUTPUT_DIR;
+      exec(batFilePath, { env }, (error, stdout, stderr) => {
         if (error) {
           console.error(`exec error: ${error}`);
           return;
@@ -565,21 +741,54 @@ async function startScreenshare(driver: WebDriver) {
         }
         console.log(`stdout: ${stdout}`);
       });
+    } else {
+      const shFilePath = "start_ffmpeg.sh";
+      // Run the .sh file
+      exec(
+        `DURATION=${duration} OUTPUT_DIR="/Recordings/${recordingName}" bash ` + shFilePath,
+        (error, stdout, stderr) => {
+          if (error) {
+            console.error(`exec error: ${error}`);
+            return;
+          }
+          if (stderr) {
+            console.error(`stderr: ${stderr}`);
+            return;
+          }
+          console.log(`stdout: ${stdout}`);
+        }
+      );
     }
+    UpdateStatusWithOutputDIR(meetId, "recording",output);
   } catch (error) {
     console.log(error);
   }
-  await driver.sleep(1000000);
+  await driver.sleep(duration * 1000 + 5000);
+  exec("docker stop mediamtx_container", (error, stdout, stderr) => {
+    if (error) {
+      console.error(`exec error: ${error}`);
+      return;
+    }
+    if (stderr) {
+      console.error(`stderr: ${stderr}`);
+      return;
+    }
+    console.log(`stdout: ${stdout}`);
+  });
+  UpdateStatus(meetId, "recorded");
+  // await driver.sleep(1000000);
   driver.quit();
 }
 
-async function main() {
-  if(process.env.MEETING_LINK === undefined){
-    console.log("Please provide the meeting url in the .env file");
-    return;
-  }
+export default async function main(
+  meetLink: string,
+  duration: number,
+  botName: string,
+  meetId: string,
+  caption: boolean
+) {
   const driver = await getDriver();
-  await openMeet(driver);
-  await startScreenshare(driver);
+  await openMeet(driver, meetLink, botName);
+  await startScreenshare(driver, duration, meetId, caption);
 }
-main();
+// main("https://meet.google.com/ttp-axbj-msz",20,"Meeting Bot");
