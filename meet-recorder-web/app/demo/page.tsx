@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -36,7 +35,7 @@ export default function DemoPage() {
       intervalId = setInterval(async () => {
         try {
           const response = await fetch(
-            `http://localhost:8000/api/recording-status/${recordingId}`
+            `${process.env.NEXT_PUBLIC_API_URL}/api/recording-status/${recordingId}`
           );
           if (!response.ok) {
             throw new Error("Failed to fetch recording status");
@@ -81,7 +80,7 @@ export default function DemoPage() {
 
     try {
       const response = await fetch(
-        "http://localhost:8000/api/start-recording",
+        `${process.env.NEXT_PUBLIC_API_URL}/api/start-recording`,
         {
           method: "POST",
           body: JSON.stringify({
@@ -102,7 +101,7 @@ export default function DemoPage() {
 
       const data = await response.json();
       setApiResponse(data);
-      setRtspUrl("http://localhost:9999/mystream");
+      setRtspUrl(`${process.env.NEXT_PUBLIC_API_URL}/mystream`);
       setRecordingId(data.recordingId);
       setRecordingStatus(data.status);
       toast({
@@ -136,7 +135,7 @@ export default function DemoPage() {
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="botName">Bot's Joining Name</Label>
+            <Label htmlFor="botName">Bot Joining Name</Label>
             <Input
               id="botName"
               name="botName"

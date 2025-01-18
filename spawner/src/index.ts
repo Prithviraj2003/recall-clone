@@ -72,7 +72,7 @@ async function startScreenshare(
         console.log(`stdout: ${stdout}`);
       });
     } else {
-      const shFilePath = "start_MTX_docker.sh";
+      const shFilePath = "./start_MTX_docker.sh";
       // Run the .sh file
       exec(shFilePath, (error, stdout, stderr) => {
         if (error) {
@@ -744,8 +744,9 @@ async function startScreenshare(
     } else {
       const shFilePath = "start_ffmpeg.sh";
       // Run the .sh file
+      output=`/root/Recordings/${recordingName}`;
       exec(
-        `DURATION=${duration} OUTPUT_DIR="/Recordings/${recordingName}" bash ` + shFilePath,
+        `DURATION=${duration} OUTPUT_DIR="/root/Recordings/${recordingName}" bash ` + shFilePath,
         (error, stdout, stderr) => {
           if (error) {
             console.error(`exec error: ${error}`);
